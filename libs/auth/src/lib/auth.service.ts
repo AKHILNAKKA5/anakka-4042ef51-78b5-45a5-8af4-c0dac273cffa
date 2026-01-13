@@ -1,37 +1,45 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { Role } from './role.enum.js';
+
+export interface UserRepository {
+  findOne(options: { where: { email: string }; relations?: string[] }): Promise<any>;
+}
 
 @Injectable()
 export class AuthService {
-  private readonly mockUser = {
-    id: '1',
-    email: 'admin@test.com',
-    passwordHash: '$2b$10$VWfEqp3CdztLBWp1cHDdT.PMIqJxm7Q1h80wMkdc8tgnbPLaxJuta',
-    role: Role.OWNER,
-  };
+  private userRepository: UserRepository | null = null;
 
   constructor(private readonly jwtService: JwtService) {}
 
+  setUserRepository(repository: UserRepository) {
+    this.userRepository = repository;
+  }
+
   async login(email: string, password: string) {
-    if (email !== this.mockUser.email) {
+    if (!this.userRepository) {
+      throw new UnauthorizedException('Authentication service not properly configured');
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { email },
+      relations: ['organization'],
+    });
+
+    if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const isPasswordValid = await bcrypt.compare(
-      password,
-      this.mockUser.passwordHash
-    );
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
     const payload = {
-      sub: this.mockUser.id,
-      email: this.mockUser.email,
-      role: this.mockUser.role,
+      sub: user.id,
+      email: user.email,
+      role: user.role,
     };
     const access_token = this.jwtService.sign(payload);
 
